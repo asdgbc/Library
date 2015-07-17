@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <declare-styleable name="swipelistviewstyle">
+        <attr name="right_width" format="dimension"></attr>
+    </declare-styleable>
+    <declare-styleable name="RoundCornerProgressBar">
+        <attr name="BackGround" format="color"></attr>
+        <attr name="ProgressColor" format="color"></attr>
+    </declare-styleable>
+
+</resources>
