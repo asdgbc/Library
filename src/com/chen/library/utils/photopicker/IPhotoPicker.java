@@ -10,6 +10,11 @@ import android.net.Uri;
  * 图片选择接口
  */
 public interface IPhotoPicker {
+	
+	public static enum ReturnType{
+		Bitmap,File
+	}
+	
 	public static final int REQUEST_CODE_CAMERA = 1003;
 	public static final int REQUEST_CODE_GALLERY = 1004;
 	public static final int REQUEST_CODE_CROP = 1005;
@@ -47,13 +52,20 @@ public interface IPhotoPicker {
 	/**
 	 * 设置监听
 	 */
-	public void setOnBitmapListener(BitmapListener listener);
+	public void setGetImgListener(ImgListener listener);
 
+	/**
+	 * 设置返回类型
+	 * @param type
+	 */
+	public void setReturnType(ReturnType type);
+	
 	/**
 	 * 位图监听，通过该接口返回获得的位图
 	 */
-	public interface BitmapListener {
+	public interface ImgListener {
 		public void getBitmap(Bitmap bitmap);
+		public void getFile(File file);
 	}
 
 }

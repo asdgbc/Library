@@ -2,6 +2,7 @@ package com.chen.library.utils.photopicker;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.lang.ref.WeakReference;
 import java.util.UUID;
 
 import com.chen.library.common.Setting;
@@ -25,29 +26,29 @@ public class PhotoPicker implements IPhotoPicker {
 	public static final String MIME_TYPE_IMAGE_JPEG = "image/*";
 
 	protected File imageFile = null;
-	private Activity activity = null;
+	private WeakReference<Activity> activity = null;
 
 	private boolean isCrop = false;
-	private BitmapListener mListener = null;
+	private ImgListener mListener = null;
 
 	private CropParams mCropParams = null;
 	private Thread mHandler;
+
+	private ReturnType mReturnType;
 
 	/**
 	 * @param tempFile
 	 *            图片临时文件，拍照返回的图片保存在这个文件里面
 	 */
 	public PhotoPicker(Activity activity, File tempFile) {
-		super();
-		this.activity = activity;
+		this.activity = new WeakReference<Activity>(activity);
 		this.imageFile = tempFile;
+		mReturnType = ReturnType.Bitmap;
 	}
 
 	public PhotoPicker(Activity activity) {
-		super();
-		this.activity = activity;
 		// 如果imageFile只有文件名没有路径，那么拍完照点击完成是不会返回到之前的activity的
-		this.imageFile = new File(Setting.TEMP_PATH, UUID.randomUUID() + ".jpg");
+		this(activity, new File(Setting.TEMP_PATH, UUID.randomUUID() + ".jpg"));
 	}
 
 	public void takePhoto() {
@@ -56,14 +57,14 @@ public class PhotoPicker implements IPhotoPicker {
 			intent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(this.imageFile)); // set the image file name
 		}
 		// intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1); // set the video image quality to high
-		this.activity.startActivityForResult(intent, REQUEST_CODE_CAMERA);
+		this.activity.get().startActivityForResult(intent, REQUEST_CODE_CAMERA);
 	}
 
 	public void fromGallery() {
 		Intent getImage = new Intent(Intent.ACTION_GET_CONTENT);
 		getImage.addCategory(Intent.CATEGORY_OPENABLE);
 		getImage.setType(MIME_TYPE_IMAGE_JPEG);
-		this.activity.startActivityForResult(getImage, REQUEST_CODE_GALLERY);
+		this.activity.get().startActivityForResult(getImage, REQUEST_CODE_GALLERY);
 	}
 
 	/**
@@ -96,7 +97,7 @@ public class PhotoPicker implements IPhotoPicker {
 		if (this.mCropParams == null) {
 			this.mCropParams = new CropParams();
 		}
-		this.activity.startActivityForResult(getCropIntent(intent, this.mCropParams), REQUEST_CODE_CROP);
+		this.activity.get().startActivityForResult(getCropIntent(intent, this.mCropParams), REQUEST_CODE_CROP);
 	}
 
 	private Intent getCropIntent(Intent intent, CropParams cp) {
@@ -114,13 +115,13 @@ public class PhotoPicker implements IPhotoPicker {
 		intent.putExtra("outputFormat", cp.outputFormat);
 		// 是否去除面部检测， 如果你需要特定的比例去裁剪图片，那么这个一定要去掉，因为它会破坏掉特定的比例。
 		intent.putExtra("noFaceDetection", cp.noFaceDetection);
-//		if (isCropBigBitmap(cp)) {// 大图裁剪如果使用return-data返回，会占用太多内存
-			intent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(this.imageFile));
-			intent.putExtra("return-data", false);
-//		} else {
-			// 是否将数据保留在Bitmap中返回，如果是，则保存在返回intent.getExtras().getParcelable("data");
-//			intent.putExtra("return-data", cp.returnData);
-//		}
+		// if (isCropBigBitmap(cp)) {// 大图裁剪如果使用return-data返回，会占用太多内存
+		intent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(this.imageFile));
+		intent.putExtra("return-data", false);
+		// } else {
+		// 是否将数据保留在Bitmap中返回，如果是，则保存在返回intent.getExtras().getParcelable("data");
+		// intent.putExtra("return-data", cp.returnData);
+		// }
 		return intent;
 	}
 
@@ -154,13 +155,11 @@ public class PhotoPicker implements IPhotoPicker {
 			mHandler = new Thread() {
 				@Override
 				public void run() {
-					super.run();
 					if (imageFile.exists()) {
 						if (isCrop) {
 							cropPhoto(imageFile);
 						} else {
-							final Bitmap tmp = BitmapUtils.getBitmapFromFile(imageFile, 0, 0);
-							returnBitmap(tmp);
+							performReturn(imageFile);
 						}
 					} else {
 						if (arg2 != null && arg2.hasExtra("data")) {
@@ -169,11 +168,10 @@ public class PhotoPicker implements IPhotoPicker {
 								BitmapUtils.saveBitmapToFile(tmp, imageFile);
 								cropPhoto(imageFile);
 							} else {
-								returnBitmap(tmp);
+								performReturn(tmp);
 							}
 						}
 					}
-
 				}
 			};
 			mHandler.start();
@@ -181,15 +179,14 @@ public class PhotoPicker implements IPhotoPicker {
 			mHandler = new Thread() {
 				@Override
 				public void run() {
-					super.run();
 					Uri uri = arg2.getData();
 					if (isCrop) {
-						cropPhoto(Uri.fromFile(new File(GetPathFromUri.getPath(activity, uri))));
+						cropPhoto(Uri.fromFile(new File(GetPathFromUri.getPath(activity.get(), uri))));
 					} else {
 						try {
 							final Bitmap mPortrait;
-							mPortrait = BitmapFactory.decodeStream(activity.getContentResolver().openInputStream(uri));
-							returnBitmap(mPortrait);
+							mPortrait = BitmapFactory.decodeStream(activity.get().getContentResolver().openInputStream(uri));
+							performReturn(mPortrait);
 						} catch (FileNotFoundException e) {
 							e.printStackTrace();
 						}
@@ -197,22 +194,11 @@ public class PhotoPicker implements IPhotoPicker {
 				}
 			};
 			mHandler.start();
-
 		} else if (arg0 == REQUEST_CODE_CROP && arg1 == Activity.RESULT_OK) {
 			mHandler = new Thread() {
 				@Override
 				public void run() {
-					super.run();
-//					if (isCropBigBitmap(mCropParams)) {
-						Bitmap tmp = BitmapUtils.getBitmapFromFile(imageFile, 0, 0);
-						returnBitmap(tmp);
-//					} else {
-//						Bundle extras = arg2.getExtras();
-//						if (extras != null) {
-//							Bitmap photo = (Bitmap) extras.getParcelable("data");
-//							returnBitmap(photo);
-//						}
-//					}
+					performReturn(imageFile);
 				}
 			};
 			mHandler.run();
@@ -225,20 +211,72 @@ public class PhotoPicker implements IPhotoPicker {
 	 * @param bitmap
 	 */
 	private void returnBitmap(final Bitmap bitmap) {
-		if (mListener != null) {
-			activity.runOnUiThread(new Runnable() {
+		if (mListener != null && activity.get() != null) {
+			activity.get().runOnUiThread(new Runnable() {
 
 				@Override
 				public void run() {
-					mListener.getBitmap(bitmap);
+					if (activity.get()!=null) {
+						mListener.getBitmap(bitmap);
+					}
 				}
 			});
 		}
 	}
 
+	/**
+	 * 图片文件
+	 * 
+	 * @param file
+	 */
+	private void returnFile(final File file) {
+		if (mListener != null && activity.get() != null) {
+			activity.get().runOnUiThread(new Runnable() {
+
+				@Override
+				public void run() {
+					if (activity.get()!=null) {
+						mListener.getFile(file);
+					}
+				}
+			});
+		}
+	}
+
+	/**
+	 * 根据mReturnType返回不同的类型
+	 * 
+	 * @param ob
+	 */
+	private void performReturn(final Object ob) {
+		if (activity == null || mListener == null) {
+			return;
+		}
+		if (ob instanceof File) {
+			if (this.mReturnType == ReturnType.Bitmap) {
+				Bitmap tmp = BitmapUtils.getBitmapFromFile((File) ob, 0, 0);
+				returnBitmap(tmp);
+			} else if (this.mReturnType == ReturnType.File) {
+				returnFile((File) ob);
+			}
+		} else if (ob instanceof Bitmap) {
+			if (this.mReturnType == ReturnType.Bitmap) {
+				returnBitmap((Bitmap) ob);
+			} else if (this.mReturnType == ReturnType.File) {
+				BitmapUtils.saveBitmapToFile((Bitmap) ob, imageFile);
+				returnFile(imageFile);
+			}
+		}
+	}
+
 	@Override
-	public void setOnBitmapListener(BitmapListener listener) {
+	public void setGetImgListener(ImgListener listener) {
 		this.mListener = listener;
+	}
+
+	@Override
+	public void setReturnType(ReturnType type) {
+		this.mReturnType = type;
 	}
 
 }
